@@ -62,4 +62,14 @@ ok("C duplicate","Create SWMS for new job" in c3.post(f"/swms/{s3}/dup").text)
 ok("C no upsell for Unlimited","Unlimited — $9/month" not in c3.get("/app").text)
 for i in range(25): r=c.post("/preview",data=f)
 ok("A rate limit kicks in","Too many previews" in r.text)
+# funnel counters + metrics auth
+os.environ.pop("METRICS_TOKEN",None); ok("M metrics 404 when token unset",c.get("/metrics").status_code==404)
+os.environ["METRICS_TOKEN"]="s3cret"
+ok("M metrics 401 on wrong token",c.get("/metrics",headers={"x-metrics-token":"nope"}).status_code==401)
+m0=c.get("/metrics",headers={"x-metrics-token":"s3cret"}).json()["all_time"]
+ok("M counters recorded real paths",m0["visit_home"]>=2 and m0["preview_generated"]>=3 and m0["email_captured"]>=1 and m0["unlock_success"]>=2)
+c.get("/"); c.post("/t/checkout_click_pack"); c.post("/t/checkout_click_unlimited"); c.post("/t/bogus")
+m=c.get("/internal/funnel",headers={"x-metrics-token":"s3cret"}).json()
+ok("M increments + whitelist",m["all_time"]["visit_home"]==m0["visit_home"]+1 and m["all_time"]["checkout_click_pack"]==m0["checkout_click_pack"]+1 and m["all_time"]["checkout_click_unlimited"]==m0["checkout_click_unlimited"]+1 and "bogus" not in m["all_time"] and len(m["days"])>=1)
+ok("M checkout click beacon on pages","sendBeacon" in c.get("/").text)
 print(sum(R),"/",len(R))

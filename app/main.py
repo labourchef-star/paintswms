@@ -18,6 +18,15 @@ app=FastAPI()
 from .dbx import db, SCHEMA
 with db() as c: c.executescript(SCHEMA)
 
+# ---------- Funnel counters: day+event counts only, no PII ----------
+EVENTS=("visit_home","preview_generated","email_captured","checkout_click_pack","checkout_click_unlimited","unlock_success")
+def track(ev):
+    if ev not in EVENTS: return
+    try:
+        with db() as c: c.execute("insert into counters(day,event,n) values(?,?,1) on conflict(day,event) do update set n=counters.n+1",(datetime.datetime.utcnow().strftime("%Y-%m-%d"),ev))
+    except Exception: pass
+TRACK_JS="""<script>document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[href*="gumroad.com/l/"]');if(!a)return;var ev=a.href.indexOf('/l/lldel')>-1?'checkout_click_pack':a.href.indexOf('/l/gztwsf')>-1?'checkout_click_unlimited':'';if(ev&&navigator.sendBeacon)navigator.sendBeacon('/t/'+ev);},true);</script>"""
+
 
 def now(): return time.time()
 def esc(s): return html.escape(str(s or ""))
@@ -101,7 +110,7 @@ small{color:#666}.disc{font-size:12px;color:#444}.row{display:grid;grid-template
 def page(title,body,u=None):
     nav=('<a href="/app">My SWMS</a> · <a href="/logout">Log out</a>' if u else '<a href="/pro">PaintSWMS Pro</a>')
     ts='<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>' if TS_SITE else ''
-    return HTMLResponse(f"<!doctype html><html lang=en-AU><head><meta charset=utf-8><title>{esc(title)}</title>{CSS}{ts}<script src='https://gumroad.com/js/gumroad.js'></script></head><body><header><div class=w><a class=logo href='/'>Paint<span>SWMS</span></a><div>{nav}</div></div></header><div class=w>{body}</div></body></html>")
+    return HTMLResponse(f"<!doctype html><html lang=en-AU><head><meta charset=utf-8><title>{esc(title)}</title>{CSS}{ts}<script src='https://gumroad.com/js/gumroad.js'></script>{TRACK_JS}</head><body><header><div class=w><a class=logo href='/'>Paint<span>SWMS</span></a><div>{nav}</div></div></header><div class=w>{body}</div></body></html>")
 def ts_widget(): return f'<div class="cf-turnstile" data-sitekey="{TS_SITE}"></div>' if TS_SITE else ''
 HP='<input class=hp name=website tabindex=-1 autocomplete=off>'
 def seg(name,opts,val):
@@ -209,10 +218,26 @@ async def did(req,call_next):
     r=await call_next(req)
     if not req.cookies.get("did"): r.set_cookie("did",secrets.token_urlsafe(16),max_age=365*86400,httponly=True,samesite="lax")
     return r
+@app.post("/t/{ev}")
+def t_event(ev:str):
+    if ev in ("checkout_click_pack","checkout_click_unlimited"): track(ev)
+    return Response(status_code=204)
+@app.get("/internal/funnel")
+@app.get("/metrics")
+def metrics(req:Request):
+    tok=os.environ.get("METRICS_TOKEN","")
+    if not tok: return Response(status_code=404)
+    if not hmac.compare_digest(req.headers.get("x-metrics-token",""),tok): return Response(status_code=401)
+    with db() as c: rows=c.execute("select day,event,n from counters order by day").fetchall()
+    days={}; tot={e:0 for e in EVENTS}
+    for r in rows:
+        days.setdefault(r["day"],{e:0 for e in EVENTS})[r["event"]]=r["n"]; tot[r["event"]]=tot.get(r["event"],0)+r["n"]
+    return {"days":days,"all_time":tot}
 @app.get("/health")
 def health(): return {"ok":True}
 @app.get("/",response_class=HTMLResponse)
 def home(req:Request):
+    track("visit_home")
     return page("PaintSWMS – painting SWMS in 2 minutes",f"""<h1 style="margin:18px 0 4px">Answer 6 questions, get your painting SWMS</h1>
 <p>No account. Your SWMS comes up on screen straight away, with your business and job filled in. Built on the Safe Work Australia model template.</p>
 {wizard('/preview',{},'Show my SWMS')}
@@ -224,7 +249,7 @@ async def preview(req:Request):
     f=await req.form()
     if f.get("website"): return page("Thanks","<p class=ok>Thanks.</p>")
     if limited([ip(req),device(req)],"gen",20,3600): return page("Slow down","<p class=err>Too many previews from this connection. Try again in an hour.</p>")
-    d=clean(f); tok=sign({"d":d,"t":now()})
+    d=clean(f); tok=sign({"d":d,"t":now()}); track("preview_generated")
     locks="".join(f"<li>🔒 {esc(n)} — locked</li>" for n in locked_names(d))
     return page("Your SWMS preview",f"""<div class="card ok"><b>Here's your SWMS for {esc(d['site'])}.</b> Work at height and the sign-off sheet are free.</div>
 <div class=card id=unlock><h2 style="margin-top:0">Unlock your full SWMS for this job — $19</h2><p>Still locked for this job:</p><ul>{locks}</ul>
@@ -241,6 +266,7 @@ async def dl_start(req:Request):
     if not turnstile_ok(f.get("cf-turnstile-response",""),req): return page("Check failed","<p class=err>The human check didn't pass. Go back and try again.</p>")
     if limited([ip(req),device(req)],"code",5,3600) or limited([email],"code_e",3,3600): return page("Slow down","<p class=err>Too many code requests. Try again in an hour.</p>")
     with db() as c: c.execute("insert into leads values(?,?,?,?)",(email,now(),ip(req),json.dumps(d)))
+    track("email_captured")
     if not email_ready() and not DEV:
         tok=sign({"d":d,"e":email,"t":now(),"g":1})
         return page("Download",f"""<div class=card><p>Grab the free download through our Gumroad page (it's free, and it's how we keep our mailing list), then come back and download your filled-in PDF.</p>
@@ -310,7 +336,7 @@ def claim(pid,p,key,d):
         if pid==PACK_ID:
             if sid: c.execute("insert into unlocks values(?,?,?,?) on conflict do nothing",(key,sid,uid,now()))
         else: c.execute("update users set pro_until=?,license=? where id=?",(now()+35*86400,key,uid))
-    r0.headers["location"]=f"/done/{sid}" if sid else "/app"; r0.delete_cookie("pend"); return r0
+    track("unlock_success"); r0.headers["location"]=f"/done/{sid}" if sid else "/app"; r0.delete_cookie("pend"); return r0
 def pend_data(pid_):
     with db() as c: r=c.execute("select data from pending where id=?",(pid_ or "",)).fetchone()
     return json.loads(r["data"]) if r else None
@@ -376,7 +402,7 @@ async def unlock_pro(req:Request):
     f=await req.form(); key=str(f.get("key","")).strip(); v=verify_license(key)
     if not v or v[0]==PACK_ID: return page("Key not recognised","<p class=err>That isn't an active Unlimited key. (A $19 job key unlocks the SWMS it was bought for.)</p>",u)
     with db() as c: c.execute("update users set pro_until=?,license=? where id=?",(now()+35*86400,key,u["id"]))
-    return RedirectResponse("/app",303)
+    track("unlock_success"); return RedirectResponse("/app",303)
 @app.get("/logout")
 def logout():
     r=RedirectResponse("/",303); r.delete_cookie("sess"); return r

@@ -33,5 +33,6 @@ create table if not exists hits(key text,kind text,ts double precision);
 create table if not exists leads(email text,ts double precision,ip text,payload text);
 create table if not exists pending(id text primary key,data text,ts double precision);
 create table if not exists unlocks(key text primary key,swms_id int,user_id int,ts double precision);
+create table if not exists counters(day text,event text,n int default 0,primary key(day,event));
 create index if not exists hits_k on hits(key,kind,ts)
 """
