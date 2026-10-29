@@ -325,6 +325,8 @@ async def unlock_start(req:Request):
 @app.get("/unlock/return")
 def unlock_return(req:Request,sale_id:str=""):
     v=gumroad_sale(sale_id); d=pend_data(req.cookies.get("pend"))
+    if v and v[0]!=PACK_ID: return claim(v[0],v[1],"sale:"+sale_id,d)
+    if v and not d: return page("Open on the same device","<div class=card><p>Payment confirmed. Open this button on the phone or computer where you filled in your SWMS, or go to <a href='/'>PaintSWMS</a>, fill in the job again and paste the licence key from your Gumroad receipt on the unlock page.</p></div>")
     if not v or not d: return RedirectResponse(f"/unlock/{req.cookies.get('pend','')}" if d else "/",303)
     return claim(v[0],v[1],"sale:"+sale_id,d)
 @app.get("/unlock/{pid_}",response_class=HTMLResponse)
