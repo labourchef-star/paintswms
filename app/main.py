@@ -48,11 +48,13 @@ def turnstile_ok(token,req):
     if not TS_SECRET: return True
     try: return httpx.post("https://challenges.cloudflare.com/turnstile/v0/siteverify",data={"secret":TS_SECRET,"response":token,"remoteip":ip(req)},timeout=8).json().get("success",False)
     except Exception: return False
+BASE_URL=os.environ.get("BASE_URL","https://paintswms.kerbform.com").rstrip("/")
+BASE_HOST=BASE_URL.split("://",1)[-1]
 def email_ready(): return bool(os.environ.get("RESEND_API_KEY") or os.environ.get("SMTP_HOST"))
 def send_code(to,code):
     body=f"Your PaintSWMS code is {code}. It expires in 15 minutes. If you didn't ask for this, ignore this email."
     if os.environ.get("RESEND_API_KEY"):
-        r=httpx.post("https://api.resend.com/emails",headers={"Authorization":"Bearer "+os.environ["RESEND_API_KEY"]},json={"from":os.environ.get("MAIL_FROM","PaintSWMS <codes@paintswms.com.au>"),"to":[to],"subject":f"PaintSWMS code: {code}","text":body},timeout=10); return r.status_code<300
+        r=httpx.post("https://api.resend.com/emails",headers={"Authorization":"Bearer "+os.environ["RESEND_API_KEY"]},json={"from":os.environ.get("MAIL_FROM","PaintSWMS <codes@send.kerbform.com>"),"to":[to],"subject":f"PaintSWMS code: {code}","text":body},timeout=10); return r.status_code<300
     if os.environ.get("SMTP_HOST"):
         m=EmailMessage(); m["From"]=os.environ.get("MAIL_FROM"); m["To"]=to; m["Subject"]=f"PaintSWMS code: {code}"; m.set_content(body)
         with smtplib.SMTP(os.environ["SMTP_HOST"],int(os.environ.get("SMTP_PORT","587"))) as s:
@@ -179,14 +181,14 @@ def pdf_bytes(d,prof=None,signs=(),watermark=False):
     for title,rows,free in secs:
         if watermark and not free: continue
         el+=[P(title,"Heading3"),tb([["Task","Hazards and risks","Control measures","Who / monitored"]]+[[a,b,c,"Supervisor: ______ · daily pre-start"] for a,b,c in rows],[120,170,350,120])]
-    if watermark: el.append(P("The other sections for this job unlock for US$19 at paintswms.onrender.com"))
+    if watermark: el.append(P("The other sections for this job unlock for US$19 at "+BASE_HOST))
     el+=[P("Compliance and review","Heading3"),P(C.REVIEW),P("Worker consultation and sign-off","Heading3")]
     names=list(signs) or [(n.strip(),"") for n in (prof.get("crew") or "").split(",") if n.strip()]
     el.append(tb([["Name","Date","Signature"]]+[[n,x,""] for n,x in names]+[["","",""]]*max(1,4-len(names)),[250,150,300]))
     el+=[Spacer(1,8),P(C.disclaimer(d["state"]))]
     def wm(cv,doc):
         if watermark:
-            cv.saveState(); cv.setFont("Helvetica-Bold",48); cv.setFillColorRGB(.91,.34,.16,alpha=.15); cv.translate(420,200); cv.rotate(25); cv.drawCentredString(0,0,"FREE PREVIEW - paintswms"); cv.restoreState(); cv.setFont("Helvetica-Bold",9); cv.drawString(28,12,"Free preview - paintswms. Unlock the full, clean SWMS for this job: paintswms.onrender.com")
+            cv.saveState(); cv.setFont("Helvetica-Bold",48); cv.setFillColorRGB(.91,.34,.16,alpha=.15); cv.translate(420,200); cv.rotate(25); cv.drawCentredString(0,0,"FREE PREVIEW - paintswms"); cv.restoreState(); cv.setFont("Helvetica-Bold",9); cv.drawString(28,12,"Free preview - paintswms. Unlock the full, clean SWMS for this job: "+BASE_HOST)
     b=io.BytesIO(); SimpleDocTemplate(b,pagesize=landscape(A4),leftMargin=28,rightMargin=28,topMargin=24,bottomMargin=24).build(el,onFirstPage=wm,onLaterPages=wm); return b.getvalue()
 def docx_bytes(d,prof=None,signs=()):
     from docx import Document
