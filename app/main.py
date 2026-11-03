@@ -98,7 +98,7 @@ def verify_license(key):
             return pid,p
     return None
 
-CSS="""<meta name=viewport content="width=device-width,initial-scale=1"><style>
+CSS="""<meta name=viewport content="width=device-width,initial-scale=1"><link rel=icon href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231f2a33'/%3E%3Ctext x='16' y='23' font-size='20' font-family='Arial' font-weight='700' fill='white' text-anchor='middle'%3EK%3C/text%3E%3C/svg%3E"><style>
 :root{--ink:#1d2430;--acc:#e8572a;--bg:#f7f5f1}*{box-sizing:border-box}body{margin:0;font:16px/1.5 system-ui,Segoe UI,Arial,sans-serif;color:var(--ink);background:var(--bg)}
 .w{max-width:860px;margin:auto;padding:0 14px}header{background:var(--ink);color:#fff;padding:12px 0}header .w{display:flex;justify-content:space-between;align-items:center}header a{color:#fff;text-decoration:none}.logo{font-weight:800;font-size:20px}.logo span{color:var(--acc)}
 .card{background:#fff;border:1px solid #e4e0d8;border-radius:10px;padding:18px;margin:16px 0}label{display:block;font-weight:700;margin:12px 0 5px}input,select,textarea{width:100%;padding:12px;border:1px solid #bbb;border-radius:8px;font-size:16px}
@@ -112,7 +112,7 @@ small{color:#666}.disc{font-size:12px;color:#444}.row{display:grid;grid-template
 def page(title,body,u=None):
     nav=('<a href="/app">My SWMS</a> · <a href="/logout">Log out</a>' if u else '<a href="/pro">PaintSWMS Pro</a>')
     ts='<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>' if TS_SITE else ''
-    return HTMLResponse(f"<!doctype html><html lang=en-AU><head><meta charset=utf-8><title>{esc(title)}</title>{CSS}{ts}<script src='https://gumroad.com/js/gumroad.js'></script>{TRACK_JS}</head><body><header><div class=w><a class=logo href='/'>Paint<span>SWMS</span></a><div>{nav}</div></div></header><div class=w>{body}</div></body></html>")
+    return HTMLResponse(f"<!doctype html><html lang=en-AU><head><meta charset=utf-8><title>{esc(title)}</title>{CSS}{ts}<script src='https://gumroad.com/js/gumroad.js'></script>{TRACK_JS}</head><body><header><div class=w><a class=logo href='/'>Paint<span>SWMS</span></a><div>{nav}</div></div></header><div class=w>{body}<p class=disc style='margin:24px 0'>PaintSWMS is made by <a href='https://kerbform.com'>Kerbform</a>. <a href='/privacy'>Privacy</a> · <a href='/terms'>Terms</a> · <a href='mailto:hello@kerbform.com'>hello@kerbform.com</a></p></div></body></html>")
 def ts_widget(): return f'<div class="cf-turnstile" data-sitekey="{TS_SITE}"></div>' if TS_SITE else ''
 HP='<input class=hp name=website tabindex=-1 autocomplete=off>'
 def seg(name,opts,val):
@@ -516,6 +516,8 @@ def export(req:Request,sid:int,fmt:str):
     if fmt=="pdf": return Response(pdf_bytes(d,p,s),media_type="application/pdf",headers={"Content-Disposition":f"attachment; filename={name}.pdf"})
     if fmt=="docx": return Response(docx_bytes(d,p,s),media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",headers={"Content-Disposition":f"attachment; filename={name}.docx"})
     return RedirectResponse("/app",303)
+@app.get("/terms")
+def terms(): return RedirectResponse("https://kerbform.com/terms.html",301)
 @app.get("/privacy",response_class=HTMLResponse)
 def privacy(req:Request):
-    return page("Privacy","<div class=card><h2>Privacy</h2><p>We collect your email when you download a free SWMS or log in, the answers you enter, your business profile, and the names you add to sign-off lists. We keep your IP address and a device cookie for a short time to stop abuse. Payments are handled by Gumroad. We don't sell your details. Email us to have your account deleted.</p></div>")
+    return page("Privacy","<div class=card><h2>Privacy</h2><p>We collect your email when you download a free SWMS or log in, the answers you enter, your business profile, and the names you add to sign-off lists. We keep your IP address and a device cookie for a short time to stop abuse. Payments are handled by Gumroad. We don't sell your details. Email us at <a href='mailto:hello@kerbform.com'>hello@kerbform.com</a> to have your account deleted.</p></div>")
